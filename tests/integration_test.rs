@@ -61,7 +61,9 @@ fn test_all_testcases() {
 
         // Catch panics during parsing
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            parser.parse();
+            if parser.parse().is_err() || !parser.errors.is_empty() {
+                panic!("Parsing failed: {:?}", parser.errors);
+            }
             parser.generator.code
         }));
 

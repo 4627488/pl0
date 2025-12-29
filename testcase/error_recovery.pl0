@@ -1,0 +1,13 @@
+program errors;
+var a, b;
+begin
+    a := 10;
+    b := ;
+    a := a + 5;
+    if a > 10 then
+        b := 20
+    else
+        b := 30;
+    call undefined_proc;
+    write(a, b);
+end.

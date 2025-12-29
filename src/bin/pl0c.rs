@@ -22,13 +22,31 @@ fn main() {
 
     println!("Compiling {}...", source_path);
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        parser.parse();
-    }));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| parser.parse()));
 
-    if result.is_err() {
-        eprintln!("Compilation failed.");
-        std::process::exit(1);
+    match result {
+        Ok(Ok(_)) => {
+            if !parser.errors.is_empty() {
+                eprintln!("Compilation failed with {} errors:", parser.errors.len());
+                for err in &parser.errors {
+                    eprintln!("{}", err);
+                }
+                std::process::exit(1);
+            }
+        }
+        Ok(Err(_)) => {
+            eprintln!("Compilation failed.");
+            if !parser.errors.is_empty() {
+                for err in &parser.errors {
+                    eprintln!("{}", err);
+                }
+            }
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("Internal Compiler Error (Panic).");
+            std::process::exit(1);
+        }
     }
 
     println!(

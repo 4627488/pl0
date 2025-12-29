@@ -36,7 +36,10 @@ pub struct Parser<'a> {
     pub generator: CodeGenerator,
     table: Vec<Symbol>,
     level: usize, // Current nesting level
+    pub errors: Vec<String>,
 }
+
+type ParseResult = Result<(), ()>;
 
 impl<'a> Parser<'a> {
     pub fn new(lexer: Lexer<'a>) -> Self {
@@ -45,25 +48,51 @@ impl<'a> Parser<'a> {
             generator: CodeGenerator::new(),
             table: Vec::new(),
             level: 0,
+            errors: Vec::new(),
         }
     }
 
-    fn error(&self, msg: &str) {
-        panic!("Error at line {}: {}", self.lexer.line, msg);
+    fn error(&mut self, msg: &str) -> ParseResult {
+        let error_msg = format!("Error at line {}: {}", self.lexer.line, msg);
+        self.errors.push(error_msg);
+        Err(())
+    }
+
+    fn synchronize(&mut self) {
+        self.next();
+        while self.lexer.current_token != TokenType::Eof {
+            if self.lexer.current_token == TokenType::Semicolon {
+                return;
+            }
+            match self.lexer.current_token {
+                TokenType::Const
+                | TokenType::Var
+                | TokenType::Procedure
+                | TokenType::Begin
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Call
+                | TokenType::Read
+                | TokenType::Write
+                | TokenType::End => return,
+                _ => self.next(),
+            }
+        }
     }
 
     fn next(&mut self) {
         self.lexer.next_token();
     }
 
-    fn expect(&mut self, token: TokenType) {
+    fn expect(&mut self, token: TokenType) -> ParseResult {
         if self.lexer.current_token == token {
             self.next();
+            Ok(())
         } else {
             self.error(&format!(
                 "Expected {:?}, found {:?}",
                 token, self.lexer.current_token
-            ));
+            ))
         }
     }
 
@@ -85,29 +114,29 @@ impl<'a> Parser<'a> {
         None
     }
 
-    pub fn parse(&mut self) {
-        self.program();
+    pub fn parse(&mut self) -> ParseResult {
+        self.program()
     }
 
     // <prog> → program <id>；<block>
-    fn program(&mut self) {
+    fn program(&mut self) -> ParseResult {
         if self.lexer.current_token == TokenType::Program {
             self.next();
             if let TokenType::Identifier(_) = self.lexer.current_token {
                 self.next();
             } else {
-                self.error("Expected program name");
+                self.error("Expected program name")?;
             }
-            self.expect(TokenType::Semicolon);
+            self.expect(TokenType::Semicolon)?;
         } else {
-            self.error("Expected 'program'");
+            self.error("Expected 'program'")?;
         }
 
-        self.block();
+        self.block()
     }
 
     // <block> → [<condecl>][<vardecl>][<proc>]<body>
-    fn block(&mut self) {
+    fn block(&mut self) -> ParseResult {
         let tx0 = self.table.len(); // Save symbol table index
         let jmp_addr = self.generator.next_address();
         self.emit(OpCode::JMP, 0, 0); // Jump to start of body (placeholder)
@@ -142,17 +171,17 @@ impl<'a> Parser<'a> {
 
         // Const Declaration
         if self.lexer.current_token == TokenType::Const {
-            self.const_decl();
+            self.const_decl()?;
         }
 
         // Var Declaration
         if self.lexer.current_token == TokenType::Var {
-            data_alloc_size += self.var_decl();
+            data_alloc_size += self.var_decl()?;
         }
 
         // Procedure Declaration
         if self.lexer.current_token == TokenType::Procedure {
-            self.proc_decl();
+            self.proc_decl()?;
         }
 
         // Fix the JMP to point to the start of the body
@@ -162,17 +191,20 @@ impl<'a> Parser<'a> {
         // Allocate space
         self.emit(OpCode::INT, 0, data_alloc_size as i64);
 
-        self.statement();
+        if let Err(_) = self.statement() {
+            self.synchronize();
+        }
 
         self.emit(OpCode::OPR, 0, Operator::RET as i64); // Return
 
         // Restore symbol table
         self.table.truncate(tx0);
+        Ok(())
     }
 
     // <condecl> → const <const>{,<const>}
     // <const> → <id>:=<integer>
-    fn const_decl(&mut self) {
+    fn const_decl(&mut self) -> ParseResult {
         self.next(); // consume 'const'
         loop {
             if let TokenType::Identifier(name) = self.lexer.current_token.clone() {
@@ -180,17 +212,17 @@ impl<'a> Parser<'a> {
                 if self.lexer.current_token == TokenType::Assignment {
                     self.next();
                 } else {
-                    self.error("Expected :=");
+                    self.error("Expected :=")?;
                 }
 
                 if let TokenType::Number(val) = self.lexer.current_token {
                     self.enter(name, SymbolType::Constant { val });
                     self.next();
                 } else {
-                    self.error("Expected number");
+                    self.error("Expected number")?;
                 }
             } else {
-                self.error("Expected identifier");
+                self.error("Expected identifier")?;
             }
 
             if self.lexer.current_token == TokenType::Comma {
@@ -199,11 +231,11 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        self.expect(TokenType::Semicolon);
+        self.expect(TokenType::Semicolon)
     }
 
     // <vardecl> → var <id>{,<id>}
-    fn var_decl(&mut self) -> usize {
+    fn var_decl(&mut self) -> Result<usize, ()> {
         let mut vars = 0;
         self.next(); // consume 'var'
         loop {
@@ -218,7 +250,7 @@ impl<'a> Parser<'a> {
                 vars += 1;
                 self.next();
             } else {
-                self.error("Expected identifier");
+                self.error("Expected identifier")?;
             }
 
             if self.lexer.current_token == TokenType::Comma {
@@ -227,18 +259,18 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        self.expect(TokenType::Semicolon);
-        vars
+        self.expect(TokenType::Semicolon)?;
+        Ok(vars)
     }
 
     // <proc> → procedure <id>（[<id>{,<id>}]）;<block>{;<proc>}
-    fn proc_decl(&mut self) {
+    fn proc_decl(&mut self) -> ParseResult {
         while self.lexer.current_token == TokenType::Procedure {
             self.next();
             let name = if let TokenType::Identifier(n) = self.lexer.current_token.clone() {
                 n
             } else {
-                self.error("Expected procedure name");
+                self.error("Expected procedure name")?;
                 String::new()
             };
             self.next();
@@ -262,7 +294,7 @@ impl<'a> Parser<'a> {
                             params.push(pname);
                             self.next();
                         } else {
-                            self.error("Expected parameter name");
+                            self.error("Expected parameter name")?;
                         }
 
                         if self.lexer.current_token == TokenType::Comma {
@@ -272,10 +304,10 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                self.expect(TokenType::RParen);
+                self.expect(TokenType::RParen)?;
             }
 
-            self.expect(TokenType::Semicolon);
+            self.expect(TokenType::Semicolon)?;
 
             let count = params.len();
             for (i, pname) in params.into_iter().enumerate() {
@@ -289,16 +321,17 @@ impl<'a> Parser<'a> {
                 );
             }
 
-            self.block();
+            self.block()?;
 
-            self.expect(TokenType::Semicolon);
+            self.expect(TokenType::Semicolon)?;
             self.level -= 1;
         }
+        Ok(())
     }
 
     // <body> → begin <statement>{;<statement>}end
     // <statement> → ...
-    fn statement(&mut self) {
+    fn statement(&mut self) -> ParseResult {
         match self.lexer.current_token.clone() {
             TokenType::Identifier(name) => {
                 // Assignment: <id> := <exp>
@@ -307,18 +340,18 @@ impl<'a> Parser<'a> {
                     match sym.kind {
                         SymbolType::Variable { level, addr } => (level, addr),
                         _ => {
-                            self.error("Assignment to non-variable");
+                            self.error("Assignment to non-variable")?;
                             (0, 0)
                         }
                     }
                 } else {
-                    self.error(&format!("Undefined variable: {}", name));
+                    self.error(&format!("Undefined variable: {}", name))?;
                     (0, 0)
                 };
 
                 self.next();
-                self.expect(TokenType::Assignment);
-                self.expression();
+                self.expect(TokenType::Assignment)?;
+                self.expression()?;
                 self.emit(OpCode::STO, self.level - level, addr);
             }
             TokenType::Call => {
@@ -329,137 +362,21 @@ impl<'a> Parser<'a> {
                         match sym.kind {
                             SymbolType::Procedure { level, addr } => (level, addr),
                             _ => {
-                                self.error("Call to non-procedure");
+                                self.error("Call to non-procedure")?;
                                 (0, 0)
                             }
                         }
                     } else {
-                        self.error(&format!("Undefined procedure: {}", name));
+                        self.error(&format!("Undefined procedure: {}", name))?;
                         (0, 0)
                     };
 
                     // Handle parameters: call <id>[（<exp>{,<exp>}）]
                     if self.lexer.current_token == TokenType::LParen {
                         self.next();
-                        // We need to push arguments onto the stack.
-                        // The CAL instruction will then set up the frame.
-                        // Wait, standard PL/0 CAL instruction expects the stack top to be the static link?
-                        // No, my VM implementation of CAL:
-                        // stack[sp] = SL; stack[sp+1] = DL; stack[sp+2] = RA;
-                        // It assumes the new frame starts at `sp`.
-                        // If we have parameters, they should be pushed *before* CAL?
-                        // If I push params, `sp` increases.
-                        // Then CAL uses the new `sp` as the base for the new frame.
-                        // So the parameters will be at `base - params`?
-                        // No, the new frame starts at `sp`.
-                        // If I want parameters to be at `base + 3`, I need to handle this.
-
-                        // Standard PL/0 doesn't have params.
-                        // With params, usually:
-                        // 1. Push params.
-                        // 2. Call.
-                        // Inside callee:
-                        // Params are at negative offsets from BP? Or positive?
-                        // If `CAL` sets `bp = sp`, then `sp` was pointing to where SL is stored.
-                        // If we pushed params, `sp` is after params.
-                        // So `bp` will be after params.
-                        // So params are at `bp - 1`, `bp - 2`...
-
-                        // BUT, my `proc_decl` assigned positive addresses (3, 4...) to parameters.
-                        // This implies parameters are *inside* the local data area, allocated by INT.
-                        // This means the caller must store arguments into the callee's stack frame *after* it is allocated?
-                        // Or the caller pushes them, and the callee considers them part of its frame.
-
-                        // If I want parameters at 3, 4...
-                        // The `INT` instruction increments `sp`.
-                        // If I push params before `CAL`, they are on the stack.
-                        // `CAL` happens. `BP` moves to `SP`.
-                        // `INT` happens. `SP` moves further.
-                        // The params are "below" the new `BP`.
-
-                        // To match the "parameters at 3, 4..." model (which is typical for local vars),
-                        // we might need to copy them or pass them differently.
-                        // OR, we change the parameter addressing to be negative relative to BP.
-                        // OR, we change the calling convention.
-
-                        // Let's stick to a simple convention:
-                        // Caller pushes arguments.
-                        // `CAL` instruction needs to know how many arguments to adjust `BP`?
-                        // Or `CAL` pushes SL, DL, RA *on top* of arguments?
-                        // If `CAL` pushes SL, DL, RA, then `BP` points to SL.
-                        // Arguments are below `BP`.
-                        // So arguments would be at `BP - 1`, `BP - 2`...
-
-                        // If I want to support the syllabus requirement "solve parameter matching",
-                        // I should probably implement it.
-                        // Let's assume I push arguments.
-                        // And I change `proc_decl` to assign negative addresses to parameters?
-                        // e.g. -1, -2...
-                        // But `LOD L, a` with negative `a`? My `Instruction` has `a: i64`, so it supports negative.
-                        // `base(L) + a`.
-
-                        // Let's try this:
-                        // Caller:
-                        //   Push Arg1
-                        //   Push Arg2
-                        //   CAL
-                        // Callee:
-                        //   INT (allocates locals)
-                        //   Params are at -1, -2... (relative to BP? No, relative to BP is SL, DL, RA).
-                        //   Stack:
-                        //   ...
-                        //   Arg1
-                        //   Arg2
-                        //   SL  <-- BP
-                        //   DL
-                        //   RA
-                        //   Local1
-
-                        // So Arg2 is at BP - 1? No.
-                        // Stack grows up.
-                        // Push Arg1 (sp++)
-                        // Push Arg2 (sp++)
-                        // CAL:
-                        //   stack[sp] = SL
-                        //   stack[sp+1] = DL
-                        //   stack[sp+2] = RA
-                        //   bp = sp
-                        //   sp += 3
-
-                        // So:
-                        // BP points to SL.
-                        // BP-1 is Arg2.
-                        // BP-2 is Arg1.
-
-                        // So I need to assign addresses:
-                        // Last param: -1
-                        // First param: -count
-
-                        // Let's adjust `proc_decl` to assign these addresses.
-                        // And `block` needs to know NOT to allocate space for them (they are already there? No, they are below).
-                        // `INT` allocates space for locals (starting at 3).
-
-                        // Wait, `proc_decl` logic:
-                        // `params` loop.
-                        // I need to store them in a temporary list and then assign addresses in reverse?
-                        // Or just assign -1, -2... as I parse?
-                        // If I parse `(a, b)`, `a` is first.
-                        // Caller pushes `a`, then `b`.
-                        // Stack: `a`, `b`, `SL`...
-                        // `b` is at -1. `a` is at -2.
-
-                        // So:
-                        // `a`: -2
-                        // `b`: -1
-
-                        // So I need to know the total count to assign the address for the first one?
-                        // Yes.
-
-                        // Let's buffer the param names.
-
                         let mut args_count = 0;
                         loop {
-                            self.expression();
+                            self.expression()?;
                             args_count += 1;
                             if self.lexer.current_token == TokenType::Comma {
                                 self.next();
@@ -467,51 +384,44 @@ impl<'a> Parser<'a> {
                                 break;
                             }
                         }
-                        self.expect(TokenType::RParen);
-
-                        // Check if arg count matches?
-                        // I didn't store arg count in SymbolType::Procedure.
-                        // For a robust compiler I should, but for this I might skip strict checking or add it.
-                        // Let's add `param_count` to `SymbolType::Procedure`.
+                        self.expect(TokenType::RParen)?;
 
                         self.emit(OpCode::CAL, self.level - level, addr);
-
-                        // After return, we need to pop arguments?
-                        // Pascal/PL0 usually: Callee cleans up? Or Caller?
-                        // If `CAL` restores `SP` to `BP`, then `SP` points to `SL`.
-                        // The arguments are still below `SP`.
-                        // So Caller needs to pop them.
                         self.emit(OpCode::INT, 0, -(args_count as i64));
                     } else {
                         self.emit(OpCode::CAL, self.level - level, addr);
                     }
                 } else {
-                    self.error("Expected identifier after call");
+                    self.error("Expected identifier after call")?;
                 }
             }
             TokenType::Begin => {
                 self.next();
-                self.statement();
+                if let Err(_) = self.statement() {
+                    self.synchronize();
+                }
                 while self.lexer.current_token == TokenType::Semicolon {
                     self.next();
-                    self.statement();
+                    if let Err(_) = self.statement() {
+                        self.synchronize();
+                    }
                 }
-                self.expect(TokenType::End);
+                self.expect(TokenType::End)?;
             }
             TokenType::If => {
                 self.next();
-                self.condition();
-                self.expect(TokenType::Then);
+                self.condition()?;
+                self.expect(TokenType::Then)?;
                 let jpc_idx = self.generator.next_address();
                 self.emit(OpCode::JPC, 0, 0);
-                self.statement();
+                self.statement()?;
                 if self.lexer.current_token == TokenType::Else {
                     self.next();
                     let jmp_idx = self.generator.next_address();
                     self.emit(OpCode::JMP, 0, 0);
                     self.generator
                         .backpatch(jpc_idx, self.generator.next_address() as i64);
-                    self.statement();
+                    self.statement()?;
                     self.generator
                         .backpatch(jmp_idx, self.generator.next_address() as i64);
                 } else {
@@ -522,18 +432,18 @@ impl<'a> Parser<'a> {
             TokenType::While => {
                 self.next();
                 let start_idx = self.generator.next_address();
-                self.condition();
-                self.expect(TokenType::Do);
+                self.condition()?;
+                self.expect(TokenType::Do)?;
                 let jpc_idx = self.generator.next_address();
                 self.emit(OpCode::JPC, 0, 0);
-                self.statement();
+                self.statement()?;
                 self.emit(OpCode::JMP, 0, start_idx as i64);
                 self.generator
                     .backpatch(jpc_idx, self.generator.next_address() as i64);
             }
             TokenType::Read => {
                 self.next();
-                self.expect(TokenType::LParen);
+                self.expect(TokenType::LParen)?;
                 loop {
                     if let TokenType::Identifier(name) = self.lexer.current_token.clone() {
                         self.next();
@@ -541,17 +451,17 @@ impl<'a> Parser<'a> {
                             match sym.kind {
                                 SymbolType::Variable { level, addr } => (level, addr),
                                 _ => {
-                                    self.error("Read to non-variable");
+                                    self.error("Read to non-variable")?;
                                     (0, 0)
                                 }
                             }
                         } else {
-                            self.error("Undefined variable");
+                            self.error("Undefined variable")?;
                             (0, 0)
                         };
                         self.emit(OpCode::RED, self.level - level, addr);
                     } else {
-                        self.error("Expected identifier");
+                        self.error("Expected identifier")?;
                     }
 
                     if self.lexer.current_token == TokenType::Comma {
@@ -560,13 +470,13 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
-                self.expect(TokenType::RParen);
+                self.expect(TokenType::RParen)?;
             }
             TokenType::Write => {
                 self.next();
-                self.expect(TokenType::LParen);
+                self.expect(TokenType::LParen)?;
                 loop {
-                    self.expression();
+                    self.expression()?;
                     self.emit(OpCode::WRT, 0, 0);
                     if self.lexer.current_token == TokenType::Comma {
                         self.next();
@@ -574,25 +484,58 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
-                self.expect(TokenType::RParen);
+                self.expect(TokenType::RParen)?;
             }
             _ => {
-                self.error(&format!(
-                    "Unexpected token in statement: {:?}",
-                    self.lexer.current_token
-                ));
+                // Empty statement is allowed? Or error?
+                // Standard PL/0 allows empty statement?
+                // Usually not, but let's see.
+                // If we return Ok(()), it's an empty statement.
+                // But if we see something unexpected, we should error.
+                // If current token is End or Semicolon, it might be an empty statement.
+                // But `statement` is called when we expect a statement.
+                // If we see `End`, it means empty statement before `End`.
+                // If we see `;`, it means empty statement before `;`.
+                // Let's allow empty statement if it's End or Semicolon?
+                // No, `statement` consumes tokens. If it consumes nothing, it's empty.
+                // But we need to be careful about infinite loops if we don't consume anything.
+                // If we return Ok, the caller continues.
+                // If we error, we synchronize.
+                // Let's error on unexpected token.
+                // But wait, `Begin ... ; End` -> `statement` called on `End`.
+                // `End` is not a start of statement.
+                // So `statement` should probably return Ok if it sees `End` or `Semicolon` (follow set)?
+                // No, `statement` is called *between* semicolons.
+                // If `Begin End`, `statement` is called on `End`.
+                // So empty statement is valid.
+                // But if it's some random token, it's an error.
+
+                // Let's check if it's in the follow set.
+                // Follow(statement) = {;, End, Else}
+                // If current token is in Follow set, we return Ok (empty statement).
+                // Otherwise, error.
+                match self.lexer.current_token {
+                    TokenType::Semicolon | TokenType::End | TokenType::Else => {}
+                    _ => {
+                        self.error(&format!(
+                            "Unexpected token in statement: {:?}",
+                            self.lexer.current_token
+                        ))?;
+                    }
+                }
             }
         }
+        Ok(())
     }
 
     // <lexp> → <exp> <lop> <exp>|odd <exp>
-    fn condition(&mut self) {
+    fn condition(&mut self) -> ParseResult {
         if self.lexer.current_token == TokenType::Odd {
             self.next();
-            self.expression();
+            self.expression()?;
             self.emit(OpCode::OPR, 0, Operator::ODD as i64);
         } else {
-            self.expression();
+            self.expression()?;
             let op = self.lexer.current_token.clone();
             match op {
                 TokenType::Equals
@@ -602,7 +545,7 @@ impl<'a> Parser<'a> {
                 | TokenType::GreaterThan
                 | TokenType::GreaterEqual => {
                     self.next();
-                    self.expression();
+                    self.expression()?;
                     match op {
                         TokenType::Equals => self.emit(OpCode::OPR, 0, Operator::EQL as i64),
                         TokenType::Hash => self.emit(OpCode::OPR, 0, Operator::NEQ as i64),
@@ -613,13 +556,14 @@ impl<'a> Parser<'a> {
                         _ => {}
                     }
                 }
-                _ => self.error("Expected relational operator"),
+                _ => self.error("Expected relational operator")?,
             }
         }
+        Ok(())
     }
 
     // <exp> → [+|-]<term>{<aop><term>}
-    fn expression(&mut self) {
+    fn expression(&mut self) -> ParseResult {
         let mut op = TokenType::Unknown;
         if self.lexer.current_token == TokenType::Plus
             || self.lexer.current_token == TokenType::Minus
@@ -628,7 +572,7 @@ impl<'a> Parser<'a> {
             self.next();
         }
 
-        self.term();
+        self.term()?;
 
         if op == TokenType::Minus {
             self.emit(OpCode::OPR, 0, Operator::NEG as i64); // Negate
@@ -639,34 +583,36 @@ impl<'a> Parser<'a> {
         {
             op = self.lexer.current_token.clone();
             self.next();
-            self.term();
+            self.term()?;
             if op == TokenType::Plus {
                 self.emit(OpCode::OPR, 0, Operator::ADD as i64);
             } else {
                 self.emit(OpCode::OPR, 0, Operator::SUB as i64);
             }
         }
+        Ok(())
     }
 
     // <term> → <factor>{<mop><factor>}
-    fn term(&mut self) {
-        self.factor();
+    fn term(&mut self) -> ParseResult {
+        self.factor()?;
         while self.lexer.current_token == TokenType::Multiply
             || self.lexer.current_token == TokenType::Divide
         {
             let op = self.lexer.current_token.clone();
             self.next();
-            self.factor();
+            self.factor()?;
             if op == TokenType::Multiply {
                 self.emit(OpCode::OPR, 0, Operator::MUL as i64);
             } else {
                 self.emit(OpCode::OPR, 0, Operator::DIV as i64);
             }
         }
+        Ok(())
     }
 
     // <factor>→<id>|<integer>|(<exp>)
-    fn factor(&mut self) {
+    fn factor(&mut self) -> ParseResult {
         match self.lexer.current_token.clone() {
             TokenType::Identifier(name) => {
                 self.next();
@@ -674,16 +620,16 @@ impl<'a> Parser<'a> {
                     match sym.kind {
                         SymbolType::Constant { val } => {
                             self.emit(OpCode::LIT, 0, val);
-                            return;
+                            return Ok(());
                         }
                         SymbolType::Variable { level, addr } => (level, addr),
                         _ => {
-                            self.error("Expected constant or variable");
+                            self.error("Expected constant or variable")?;
                             (0, 0)
                         }
                     }
                 } else {
-                    self.error(&format!("Undefined symbol: {}", name));
+                    self.error(&format!("Undefined symbol: {}", name))?;
                     (0, 0)
                 };
                 self.emit(OpCode::LOD, self.level - level, addr);
@@ -694,10 +640,11 @@ impl<'a> Parser<'a> {
             }
             TokenType::LParen => {
                 self.next();
-                self.expression();
-                self.expect(TokenType::RParen);
+                self.expression()?;
+                self.expect(TokenType::RParen)?;
             }
-            _ => self.error("Expected factor"),
+            _ => self.error("Expected factor")?,
         }
+        Ok(())
     }
 }

@@ -1,9 +1,9 @@
+use pl0::tui_interface;
+use pl0::types::{Instruction, OpCode};
+use pl0::vm::VM;
 use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use pl0::vm::VM;
-use pl0::tui_interface;
-use pl0::types::{Instruction, OpCode};
 
 fn parse_opcode(s: &str) -> OpCode {
     match s {
@@ -23,7 +23,7 @@ fn parse_opcode(s: &str) -> OpCode {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     let mut file_path = None;
     let mut use_tui = true;
 
