@@ -45,18 +45,20 @@ pub struct Parser<'a> {
     symbol_table: SymbolTable,
     level: usize, // Current nesting level
     pub errors: Vec<ParseError>,
+    verbose: bool,
 }
 
 type ParseResult = Result<(), ()>;
 
 impl<'a> Parser<'a> {
-    pub fn new(lexer: Lexer<'a>) -> Self {
+    pub fn new(lexer: Lexer<'a>, verbose: bool) -> Self {
         Self {
             lexer,
             generator: CodeGenerator::new(),
             symbol_table: SymbolTable::new(),
             level: 0,
             errors: Vec::new(),
+            verbose,
         }
     }
 
@@ -100,6 +102,9 @@ impl<'a> Parser<'a> {
     }
 
     fn next(&mut self) {
+        if self.verbose {
+            println!("Token: {:?}", self.lexer.current_token);
+        }
         self.lexer.next_token();
     }
 
@@ -116,10 +121,16 @@ impl<'a> Parser<'a> {
     }
 
     fn emit(&mut self, f: OpCode, l: usize, a: i64) {
+        if self.verbose {
+            println!("Emit: {:?} {} {}", f, l, a);
+        }
         self.generator.emit(f, l, a);
     }
 
     fn enter(&mut self, name: String, kind: SymbolType) -> ParseResult {
+        if self.verbose {
+            println!("Symbol: {} {:?}", name, kind);
+        }
         if let Err(msg) = self.symbol_table.define(Symbol { name, kind }) {
             self.error(&msg)
         } else {
@@ -316,6 +327,9 @@ impl<'a> Parser<'a> {
             )?;
 
             self.level += 1;
+            if self.verbose {
+                println!("Enter Scope: Level {}", self.level);
+            }
             self.symbol_table.enter_scope(); // Enter scope for parameters and body
 
             let mut params = Vec::new();
@@ -357,6 +371,9 @@ impl<'a> Parser<'a> {
             self.block()?;
 
             self.expect(TokenType::Semicolon)?;
+            if self.verbose {
+                println!("Exit Scope: Level {}", self.level);
+            }
             self.symbol_table.exit_scope(); // Exit scope for parameters and body
             self.level -= 1;
         }

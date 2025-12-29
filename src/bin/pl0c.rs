@@ -7,18 +7,33 @@ use std::io::Write;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <source_file> [output_file]", args[0]);
+    let mut verbose = false;
+    let mut positional_args = Vec::new();
+
+    for arg in args.iter().skip(1) {
+        if arg == "--verbose" || arg == "-v" {
+            verbose = true;
+        } else {
+            positional_args.push(arg);
+        }
+    }
+
+    if positional_args.is_empty() {
+        eprintln!("Usage: {} <source_file> [output_file] [--verbose]", args[0]);
         std::process::exit(1);
     }
 
-    let source_path = &args[1];
-    let output_path = if args.len() >= 3 { &args[2] } else { "out.asm" };
+    let source_path = positional_args[0];
+    let output_path = if positional_args.len() >= 2 {
+        positional_args[1]
+    } else {
+        "out.asm"
+    };
 
     let source_code = fs::read_to_string(source_path).expect("Failed to read source file");
 
     let lexer = Lexer::new(&source_code);
-    let mut parser = Parser::new(lexer);
+    let mut parser = Parser::new(lexer, verbose);
 
     println!("Compiling {}...", source_path);
 

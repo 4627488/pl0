@@ -57,7 +57,7 @@ fn test_all_testcases() {
         }
 
         let lexer = Lexer::new(&content);
-        let mut parser = Parser::new(lexer);
+        let mut parser = Parser::new(lexer, false);
 
         // Catch panics during parsing
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
