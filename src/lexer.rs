@@ -6,6 +6,9 @@ pub struct Lexer<'a> {
     input: Peekable<Chars<'a>>,
     pub current_token: TokenType,
     pub line: usize,
+    pub col: usize,
+    pub token_line: usize,
+    pub token_col: usize,
 }
 
 impl<'a> Lexer<'a> {
@@ -14,94 +17,111 @@ impl<'a> Lexer<'a> {
             input: input.chars().peekable(),
             current_token: TokenType::Unknown,
             line: 1,
+            col: 1,
+            token_line: 1,
+            token_col: 1,
         };
         lexer.next_token(); // Prime the first token
         lexer
     }
 
+    fn read_char(&mut self) -> Option<char> {
+        let c = self.input.next()?;
+        if c == '\n' {
+            self.line += 1;
+            self.col = 1;
+        } else {
+            self.col += 1;
+        }
+        Some(c)
+    }
+
     pub fn next_token(&mut self) {
         self.skip_whitespace();
+
+        self.token_line = self.line;
+        self.token_col = self.col;
 
         if let Some(&c) = self.input.peek() {
             match c {
                 'a'..='z' | 'A'..='Z' => self.scan_identifier_or_keyword(),
                 '0'..='9' => self.scan_number(),
                 '+' => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::Plus;
                 }
                 '-' => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::Minus;
                 }
                 '*' => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::Multiply;
                 }
                 '/' => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::Divide;
                 }
                 '=' => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::Equals;
                 }
                 '#' => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::Hash;
                 }
                 '<' => {
-                    self.input.next();
+                    self.read_char();
                     if let Some(&'=') = self.input.peek() {
-                        self.input.next();
+                        self.read_char();
                         self.current_token = TokenType::LessEqual;
                     } else if let Some(&'>') = self.input.peek() {
-                        self.input.next();
+                        self.read_char();
                         self.current_token = TokenType::Hash; // Using Hash for <> (not equal)
                     } else {
                         self.current_token = TokenType::LessThan;
                     }
                 }
                 '>' => {
-                    self.input.next();
+                    self.read_char();
                     if let Some(&'=') = self.input.peek() {
-                        self.input.next();
+                        self.read_char();
                         self.current_token = TokenType::GreaterEqual;
                     } else {
                         self.current_token = TokenType::GreaterThan;
                     }
                 }
                 ':' => {
-                    self.input.next();
+                    self.read_char();
                     if let Some(&'=') = self.input.peek() {
-                        self.input.next();
+                        self.read_char();
                         self.current_token = TokenType::Assignment;
                     } else {
                         self.current_token = TokenType::Unknown; // Single ':' is not valid in PL/0
                     }
                 }
                 '(' => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::LParen;
                 }
                 ')' => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::RParen;
                 }
                 ',' => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::Comma;
                 }
                 ';' => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::Semicolon;
                 }
                 '.' => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::Period;
                 }
                 _ => {
-                    self.input.next();
+                    self.read_char();
                     self.current_token = TokenType::Unknown;
                 }
             }
@@ -113,10 +133,7 @@ impl<'a> Lexer<'a> {
     fn skip_whitespace(&mut self) {
         while let Some(&c) = self.input.peek() {
             if c.is_whitespace() {
-                if c == '\n' {
-                    self.line += 1;
-                }
-                self.input.next();
+                self.read_char();
             } else {
                 break;
             }
@@ -126,9 +143,9 @@ impl<'a> Lexer<'a> {
     fn scan_identifier_or_keyword(&mut self) {
         let mut ident = String::new();
         while let Some(&c) = self.input.peek() {
-            if c.is_alphanumeric() {
+            if c.is_alphanumeric() || c == '_' {
                 ident.push(c);
-                self.input.next();
+                self.read_char();
             } else {
                 break;
             }
@@ -159,7 +176,7 @@ impl<'a> Lexer<'a> {
         while let Some(&c) = self.input.peek() {
             if c.is_ascii_digit() {
                 num_str.push(c);
-                self.input.next();
+                self.read_char();
             } else {
                 break;
             }

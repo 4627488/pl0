@@ -25,23 +25,28 @@ fn main() {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| parser.parse()));
 
     match result {
-        Ok(Ok(_)) => {
-            if !parser.errors.is_empty() {
-                eprintln!("Compilation failed with {} errors:", parser.errors.len());
+        Ok(parse_res) => {
+            if parse_res.is_err() || !parser.errors.is_empty() {
+                eprintln!("Compilation failed.");
+                let lines: Vec<&str> = source_code.lines().collect();
                 for err in &parser.errors {
-                    eprintln!("{}", err);
+                    eprintln!(
+                        "{}:{}:{}: error: {}",
+                        source_path, err.line, err.col, err.message
+                    );
+                    if err.line > 0 && err.line <= lines.len() {
+                        let line_content = lines[err.line - 1];
+                        eprintln!("    {}", line_content);
+                        let indent: String = line_content
+                            .chars()
+                            .take(err.col - 1)
+                            .map(|c| if c.is_whitespace() { c } else { ' ' })
+                            .collect();
+                        eprintln!("    {}^", indent);
+                    }
                 }
                 std::process::exit(1);
             }
-        }
-        Ok(Err(_)) => {
-            eprintln!("Compilation failed.");
-            if !parser.errors.is_empty() {
-                for err in &parser.errors {
-                    eprintln!("{}", err);
-                }
-            }
-            std::process::exit(1);
         }
         Err(_) => {
             eprintln!("Internal Compiler Error (Panic).");

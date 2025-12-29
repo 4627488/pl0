@@ -31,12 +31,19 @@ impl CodeGenerator {
     }
 }
 
+#[derive(Debug)]
+pub struct ParseError {
+    pub line: usize,
+    pub col: usize,
+    pub message: String,
+}
+
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
     pub generator: CodeGenerator,
     table: Vec<Symbol>,
     level: usize, // Current nesting level
-    pub errors: Vec<String>,
+    pub errors: Vec<ParseError>,
 }
 
 type ParseResult = Result<(), ()>;
@@ -53,13 +60,24 @@ impl<'a> Parser<'a> {
     }
 
     fn error(&mut self, msg: &str) -> ParseResult {
-        let error_msg = format!("Error at line {}: {}", self.lexer.line, msg);
-        self.errors.push(error_msg);
+        self.errors.push(ParseError {
+            line: self.lexer.token_line,
+            col: self.lexer.token_col,
+            message: msg.to_string(),
+        });
+        Err(())
+    }
+
+    fn error_at(&mut self, line: usize, col: usize, msg: &str) -> ParseResult {
+        self.errors.push(ParseError {
+            line,
+            col,
+            message: msg.to_string(),
+        });
         Err(())
     }
 
     fn synchronize(&mut self) {
-        self.next();
         while self.lexer.current_token != TokenType::Eof {
             if self.lexer.current_token == TokenType::Semicolon {
                 return;
@@ -336,20 +354,22 @@ impl<'a> Parser<'a> {
             TokenType::Identifier(name) => {
                 // Assignment: <id> := <exp>
                 // Find symbol
+                let line = self.lexer.token_line;
+                let col = self.lexer.token_col;
+                self.next();
                 let (level, addr) = if let Some((_, sym)) = self.position(&name) {
                     match sym.kind {
                         SymbolType::Variable { level, addr } => (level, addr),
                         _ => {
-                            self.error("Assignment to non-variable")?;
+                            self.error_at(line, col, "Assignment to non-variable")?;
                             (0, 0)
                         }
                     }
                 } else {
-                    self.error(&format!("Undefined variable: {}", name))?;
+                    self.error_at(line, col, &format!("Undefined variable: {}", name))?;
                     (0, 0)
                 };
 
-                self.next();
                 self.expect(TokenType::Assignment)?;
                 self.expression()?;
                 self.emit(OpCode::STO, self.level - level, addr);
@@ -357,17 +377,19 @@ impl<'a> Parser<'a> {
             TokenType::Call => {
                 self.next();
                 if let TokenType::Identifier(name) = self.lexer.current_token.clone() {
+                    let line = self.lexer.token_line;
+                    let col = self.lexer.token_col;
                     self.next();
                     let (level, addr) = if let Some((_, sym)) = self.position(&name) {
                         match sym.kind {
                             SymbolType::Procedure { level, addr } => (level, addr),
                             _ => {
-                                self.error("Call to non-procedure")?;
+                                self.error_at(line, col, "Call to non-procedure")?;
                                 (0, 0)
                             }
                         }
                     } else {
-                        self.error(&format!("Undefined procedure: {}", name))?;
+                        self.error_at(line, col, &format!("Undefined procedure: {}", name))?;
                         (0, 0)
                     };
 
@@ -446,17 +468,19 @@ impl<'a> Parser<'a> {
                 self.expect(TokenType::LParen)?;
                 loop {
                     if let TokenType::Identifier(name) = self.lexer.current_token.clone() {
+                        let line = self.lexer.token_line;
+                        let col = self.lexer.token_col;
                         self.next();
                         let (level, addr) = if let Some((_, sym)) = self.position(&name) {
                             match sym.kind {
                                 SymbolType::Variable { level, addr } => (level, addr),
                                 _ => {
-                                    self.error("Read to non-variable")?;
+                                    self.error_at(line, col, "Read to non-variable")?;
                                     (0, 0)
                                 }
                             }
                         } else {
-                            self.error("Undefined variable")?;
+                            self.error_at(line, col, "Undefined variable")?;
                             (0, 0)
                         };
                         self.emit(OpCode::RED, self.level - level, addr);
@@ -615,6 +639,8 @@ impl<'a> Parser<'a> {
     fn factor(&mut self) -> ParseResult {
         match self.lexer.current_token.clone() {
             TokenType::Identifier(name) => {
+                let line = self.lexer.token_line;
+                let col = self.lexer.token_col;
                 self.next();
                 let (level, addr) = if let Some((_, sym)) = self.position(&name) {
                     match sym.kind {
@@ -624,12 +650,12 @@ impl<'a> Parser<'a> {
                         }
                         SymbolType::Variable { level, addr } => (level, addr),
                         _ => {
-                            self.error("Expected constant or variable")?;
+                            self.error_at(line, col, "Expected constant or variable")?;
                             (0, 0)
                         }
                     }
                 } else {
-                    self.error(&format!("Undefined symbol: {}", name))?;
+                    self.error_at(line, col, &format!("Undefined symbol: {}", name))?;
                     (0, 0)
                 };
                 self.emit(OpCode::LOD, self.level - level, addr);
