@@ -74,6 +74,13 @@ fn main() {
         parser.generator.code.len()
     );
 
+    println!("Optimizing...");
+    parser.generator.code = pl0::optimizer::optimize(parser.generator.code);
+    println!(
+        "Optimization successful! Reduced to {} instructions.",
+        parser.generator.code.len()
+    );
+
     let mut file = File::create(output_path).expect("Failed to create output file");
     for instr in &parser.generator.code {
         writeln!(file, "{:?} {} {}", instr.f, instr.l, instr.a)

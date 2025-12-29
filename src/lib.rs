@@ -1,4 +1,5 @@
 pub mod lexer;
+pub mod optimizer;
 pub mod parser;
 pub mod symbol_table;
 pub mod tui_interface;
