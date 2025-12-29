@@ -1,3 +1,5 @@
+use serde::{Serialize, Deserialize};
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenType {
     // Keywords
@@ -41,7 +43,7 @@ pub enum TokenType {
     Eof,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum OpCode {
     LIT,
     OPR,
@@ -55,7 +57,7 @@ pub enum OpCode {
     WRT,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Instruction {
     pub f: OpCode,
     pub l: usize, // Level difference

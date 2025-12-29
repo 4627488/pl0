@@ -3,5 +3,5 @@ var a, b, z;
 begin
   read(a, b);
   z := a + b;
- wrie(z)
+ write(z)
 end.
