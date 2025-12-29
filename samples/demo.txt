@@ -1,0 +1,21 @@
+program demo;
+const m := 10;
+var x, y;
+
+procedure add(a, b);
+var z;
+begin
+  z := a + b;
+  write(z)
+end;
+
+begin
+  read(x, y);
+  if odd x then
+    write(x)
+  else
+    write(y);
+  while x < m do
+    x := x + 1;
+  call add(x, y)
+end.
