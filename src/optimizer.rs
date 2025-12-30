@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 pub fn optimize(code: Vec<Instruction>) -> Vec<Instruction> {
     let mut current_code = code;
-    let mut pass = 1;
+    // let mut pass = 1;
     loop {
         let (optimized_code, changed) = optimize_pass(&current_code);
         if !changed {
@@ -11,7 +11,7 @@ pub fn optimize(code: Vec<Instruction>) -> Vec<Instruction> {
         }
         // println!("Optimization pass {} finished. Size: {} -> {}", pass, current_code.len(), optimized_code.len());
         current_code = optimized_code;
-        pass += 1;
+        // pass += 1;
     }
     current_code
 }
