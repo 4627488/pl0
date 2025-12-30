@@ -99,6 +99,7 @@ impl<'a> Parser<'a> {
             vars,
             procedures,
             statement,
+            scope_id: None,
         })
     }
 

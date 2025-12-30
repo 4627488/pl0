@@ -11,6 +11,7 @@ pub struct Block {
     pub vars: Vec<String>,
     pub procedures: Vec<ProcedureDecl>,
     pub statement: Statement,
+    pub scope_id: Option<usize>,
 }
 
 #[derive(Debug, Clone)]

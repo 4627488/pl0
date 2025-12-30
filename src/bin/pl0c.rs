@@ -2,6 +2,8 @@ use pl0::codegen::CodeGenerator;
 use pl0::lexer::Lexer;
 use pl0::optimizer::{optimize, optimize_ast};
 use pl0::parser::Parser;
+use pl0::semantic::SemanticAnalyzer;
+use pl0::symbol_table::SymbolTable;
 use pl0::vm::VM;
 use std::env;
 use std::fs::{self, File};
@@ -80,15 +82,21 @@ fn main() {
         optimize_ast(&mut program);
     }
 
+    println!("Performing Semantic Analysis...");
+    let mut symbol_table = SymbolTable::new();
+    let mut analyzer = SemanticAnalyzer::new(&mut symbol_table);
+
+    if let Err(errors) = analyzer.analyze(&mut program) {
+        eprintln!("Semantic analysis failed:");
+        for err in errors {
+            eprintln!("  {}", err);
+        }
+        std::process::exit(1);
+    }
+
     println!("Generating Code...");
     let mut generator = CodeGenerator::new();
-    let code = match generator.generate(&program) {
-        Ok(c) => c,
-        Err(msg) => {
-            eprintln!("Code generation failed: {}", msg);
-            std::process::exit(1);
-        }
-    };
+    let code = generator.generate(&program, &mut symbol_table);
 
     println!(
         "Compilation successful! Generated {} instructions.",
