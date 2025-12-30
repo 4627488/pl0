@@ -33,7 +33,7 @@ fn test_all_testcases() {
             expected_output: vec!["9".to_string()],
         },
         TestCase {
-            filename: "rucursion.txt",
+            filename: "recursion.txt",
             input: vec![5],
             expected_output: vec!["5".to_string(), "120".to_string()],
         },
