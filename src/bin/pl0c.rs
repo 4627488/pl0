@@ -10,11 +10,14 @@ use std::io::Write;
 fn main() {
     let args: Vec<String> = env::args().collect();
     let mut verbose = false;
+    let mut use_optimization = false;
     let mut positional_args = Vec::new();
 
     for arg in args.iter().skip(1) {
         if arg == "--verbose" || arg == "-v" {
             verbose = true;
+        } else if arg == "-o2" {
+            use_optimization = true;
         } else {
             positional_args.push(arg);
         }
@@ -42,8 +45,8 @@ fn main() {
     // Parse to AST
     let parse_result = parser.parse();
 
-    if parse_result.is_err() || !parser.errors.is_empty() {
-        eprintln!("Compilation failed.");
+    if !parser.errors.is_empty() {
+        eprintln!("Parsing encountered errors.");
         let lines: Vec<&str> = source_code.lines().collect();
         for err in &parser.errors {
             eprintln!(
@@ -61,13 +64,21 @@ fn main() {
                 eprintln!("    {}^", indent);
             }
         }
+        eprintln!("Compilation failed due to parsing errors.");
+        std::process::exit(1);
+    }
+
+    if parse_result.is_err() {
+        eprintln!("Fatal parsing error.");
         std::process::exit(1);
     }
 
     let mut program = parse_result.unwrap();
 
-    println!("Optimizing AST...");
-    optimize_ast(&mut program);
+    if use_optimization {
+        println!("Optimizing AST...");
+        optimize_ast(&mut program);
+    }
 
     println!("Generating Code...");
     let mut generator = CodeGenerator::new();
@@ -84,15 +95,20 @@ fn main() {
         code.len()
     );
 
-    println!("Optimizing Bytecode...");
-    let optimized_code = optimize(code);
-    println!(
-        "Optimization successful! Reduced to {} instructions.",
-        optimized_code.len()
-    );
+    let final_code = if use_optimization {
+        println!("Optimizing Bytecode...");
+        let optimized_code = optimize(code);
+        println!(
+            "Optimization successful! Reduced to {} instructions.",
+            optimized_code.len()
+        );
+        optimized_code
+    } else {
+        code
+    };
 
     let mut file = File::create(output_path).expect("Failed to create output file");
-    for instr in &optimized_code {
+    for instr in &final_code {
         writeln!(file, "{:?} {} {}", instr.f, instr.l, instr.a)
             .expect("Failed to write instruction");
     }
@@ -100,6 +116,6 @@ fn main() {
     println!("Wrote assembly to {}", output_path);
 
     println!("Running {}...", source_path);
-    let mut vm = VM::new(optimized_code);
+    let mut vm = VM::new(final_code);
     vm.interpret();
 }

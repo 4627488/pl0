@@ -72,7 +72,6 @@ impl<'a> Parser<'a> {
         }
 
         let block = self.block()?;
-        self.expect(TokenType::Period)?;
         Ok(Program { block })
     }
 
@@ -204,6 +203,34 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn is_start_of_statement(&self) -> bool {
+        matches!(
+            self.lexer.current_token,
+            TokenType::Identifier(_)
+                | TokenType::Call
+                | TokenType::Begin
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Read
+                | TokenType::Write
+        )
+    }
+
+    fn synchronize(&mut self) {
+        while self.lexer.current_token != TokenType::Eof {
+            if self.lexer.current_token == TokenType::Semicolon {
+                return;
+            }
+            if self.is_start_of_statement() {
+                return;
+            }
+            if self.lexer.current_token == TokenType::End {
+                return;
+            }
+            self.next();
+        }
+    }
+
     fn statement(&mut self) -> ParseResult<Statement> {
         match self.lexer.current_token.clone() {
             TokenType::Identifier(name) => {
@@ -243,10 +270,62 @@ impl<'a> Parser<'a> {
             TokenType::Begin => {
                 self.next();
                 let mut statements = Vec::new();
-                statements.push(self.statement()?);
-                while self.lexer.current_token == TokenType::Semicolon {
-                    self.next();
-                    statements.push(self.statement()?);
+
+                loop {
+                    if self.lexer.current_token == TokenType::End {
+                        break;
+                    }
+
+                    match self.statement() {
+                        Ok(stmt) => {
+                            if !matches!(stmt, Statement::Empty) {
+                                statements.push(stmt);
+                            } else {
+                                if self.lexer.current_token != TokenType::Semicolon
+                                    && self.lexer.current_token != TokenType::End
+                                {
+                                    self.errors.push(ParseError {
+                                        line: self.lexer.token_line,
+                                        col: self.lexer.token_col,
+                                        message: format!(
+                                            "Unexpected token: {:?}",
+                                            self.lexer.current_token
+                                        ),
+                                    });
+                                    self.synchronize();
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            self.synchronize();
+                        }
+                    }
+
+                    if self.lexer.current_token == TokenType::Semicolon {
+                        self.next();
+                    } else if self.lexer.current_token == TokenType::End {
+                        break;
+                    } else {
+                        if self.is_start_of_statement() {
+                            self.errors.push(ParseError {
+                                line: self.lexer.token_line,
+                                col: self.lexer.token_col,
+                                message: "Expected ';'".to_string(),
+                            });
+                        } else if self.lexer.current_token != TokenType::Eof {
+                            // If we haven't already synchronized (which we would have if statement was Empty and invalid)
+                            // We might be here if statement was valid but followed by garbage.
+                            self.errors.push(ParseError {
+                                line: self.lexer.token_line,
+                                col: self.lexer.token_col,
+                                message: format!(
+                                    "Unexpected token: {:?}",
+                                    self.lexer.current_token
+                                ),
+                            });
+                            self.synchronize();
+                        }
+                    }
                 }
                 self.expect(TokenType::End)?;
                 Ok(Statement::BeginEnd { statements })
