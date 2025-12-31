@@ -63,16 +63,6 @@ impl<'a> SemanticAnalyzer<'a> {
 
         // Declare procedures
         for proc_decl in &mut block.procedures {
-            // Define procedure in current scope
-            // Address will be resolved during codegen or we can assign a placeholder?
-            // Codegen calculates address based on code length. We can't know it here easily without generating code.
-            // However, for recursive calls, we need to know it exists.
-            // We can store a placeholder addr and update it later, or just store that it is a procedure.
-            // The current SymbolType::Procedure has an addr field.
-            // Let's set it to -1 or 0 and let Codegen update it?
-            // Or better: Codegen will update the symbol table with the real address!
-            // But Semantic Analysis needs to check calls.
-
             if let Err(e) = self.symbol_table.define(Symbol {
                 name: proc_decl.name.clone(),
                 kind: SymbolType::Procedure {
@@ -148,10 +138,8 @@ impl<'a> SemanticAnalyzer<'a> {
                                 // Check arg count if we had that info in SymbolType
                             }
                             _ => {
-                                self.errors.push(format!(
-                                    "Line {}: '{}' is not a procedure",
-                                    line, name
-                                ));
+                                self.errors
+                                    .push(format!("Line {}: '{}' is not a procedure", line, name));
                             }
                         }
                     }
