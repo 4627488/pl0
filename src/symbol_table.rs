@@ -103,4 +103,54 @@ impl SymbolTable {
         }
         level
     }
+
+    pub fn to_dot(&self) -> String {
+        let mut dot = String::from("digraph SymbolTable {\n");
+        dot.push_str("    node [shape=record, fontname=\"Arial\", fontsize=10];\n");
+        dot.push_str("    rankdir=TB;\n");
+
+        for (id, scope) in self.scopes.iter().enumerate() {
+            let label_header = if let Some(parent) = scope.parent {
+                format!("Scope {} (Parent: {})", id, parent)
+            } else {
+                format!("Scope {} (Global)", id)
+            };
+
+            let mut rows = Vec::new();
+            rows.push(format!("<B>{}</B>", label_header));
+
+            // Sort symbols by name for consistent output
+            let mut symbols: Vec<_> = scope.symbols.values().collect();
+            symbols.sort_by(|a, b| a.name.cmp(&b.name));
+
+            for sym in symbols {
+                let desc = match &sym.kind {
+                    crate::types::SymbolType::Constant { val } => {
+                        format!("const {} = {}", sym.name, val)
+                    }
+                    crate::types::SymbolType::Variable { level, addr } => {
+                        format!("var {} (L:{}, A:{})", sym.name, level, addr)
+                    }
+                    crate::types::SymbolType::Procedure { level, addr } => {
+                        format!("proc {} (L:{}, A:{})", sym.name, level, addr)
+                    }
+                };
+                rows.push(desc);
+            }
+
+            // Escape special characters in label
+            let label = rows.join(" | ").replace(">", "&gt;").replace("<", "&lt;").replace("{", "\\{").replace("}", "\\}");
+            // Re-enable bold tags (hacky but simple)
+            let label = label.replace("&lt;B&gt;", "<B>").replace("&lt;/B&gt;", "</B>");
+            
+            dot.push_str(&format!("    scope_{} [label=\"{{ {} }}\"];\n", id, label));
+
+            for child_id in &scope.children {
+                dot.push_str(&format!("    scope_{} -> scope_{};\n", id, child_id));
+            }
+        }
+
+        dot.push_str("}\n");
+        dot
+    }
 }

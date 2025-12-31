@@ -4,7 +4,6 @@ use pl0::optimizer::optimize_ast;
 use pl0::parser::Parser;
 use pl0::semantic::SemanticAnalyzer;
 use pl0::symbol_table::SymbolTable;
-use pl0::vm::VM;
 use std::env;
 use std::fs::{self, File};
 use std::io::Write;
@@ -13,6 +12,7 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let mut verbose = false;
     let mut use_optimization = false;
+    let mut dump_symbols = false;
     let mut positional_args = Vec::new();
 
     for arg in args.iter().skip(1) {
@@ -20,19 +20,24 @@ fn main() {
             verbose = true;
         } else if arg == "-o2" {
             use_optimization = true;
+        } else if arg == "--dump-symbols" {
+            dump_symbols = true;
         } else {
             positional_args.push(arg);
         }
     }
 
     if positional_args.is_empty() {
-        eprintln!("Usage: {} <source_file> [output_file] [--verbose]", args[0]);
+        eprintln!(
+            "Usage: {} <source_file> [output_file] [--verbose] [-o2] [--dump-symbols]",
+            args[0]
+        );
         std::process::exit(1);
     }
 
-    let source_path = positional_args[0];
+    let source_path = &positional_args[0];
     let output_path = if positional_args.len() >= 2 {
-        positional_args[1]
+        &positional_args[1]
     } else {
         "out.asm"
     };
@@ -94,6 +99,14 @@ fn main() {
         std::process::exit(1);
     }
 
+    if dump_symbols {
+        let dot_output = symbol_table.to_dot();
+        let dot_file = "symbols.dot";
+        let mut f = File::create(dot_file).expect("Failed to create dot file");
+        f.write_all(dot_output.as_bytes()).expect("Failed to write dot file");
+        println!("Dumped symbol table to {}", dot_file);
+    }
+
     println!("Generating Code...");
     let mut generator = CodeGenerator::new();
     let code = generator.generate(&program, &mut symbol_table);
@@ -112,8 +125,4 @@ fn main() {
     }
 
     println!("Wrote assembly to {}", output_path);
-
-    println!("Running {}...", source_path);
-    let mut vm = VM::new(final_code);
-    vm.interpret();
 }

@@ -1,0 +1,49 @@
+program mathop;
+
+const zero := 0, one := 1;
+
+var a, b, gcdval, lcmval, temp;
+
+procedure calcmod(x, y);
+begin
+    temp := x - (x / y) * y
+end;
+
+procedure gcd(u, v);
+var remainder;
+begin
+    if v = zero then
+        gcdval := u
+    else
+    begin
+        call calcmod(u, v);
+        remainder := temp;
+        call gcd(v, remainder)
+    end
+end;
+
+procedure lcm(u, v);
+var product;
+begin
+    product := u * v;
+    call gcd(u, v);
+    lcmval := product / gcdval
+end;
+
+begin
+    read(a, b);
+    while a <> zero do
+    begin
+        if a < b then
+        begin
+            temp := a;
+            a := b;
+            b := temp
+        end;
+        call gcd(a, b);
+        write(gcdval);
+        call lcm(a, b);
+        write(lcmval);
+        read(a, b)
+    end
+end
